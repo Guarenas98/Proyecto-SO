@@ -12,31 +12,33 @@
 #include <sys/time.h>
 #include <signal.h>
 #include <time.h>
+#include <pthread.h>
 
 Node_t *head;
 
 int handle_command(char *, char *, int len);
 
 
-void* RunClient() {
-	int i = 0; char c;
+void* RunClient() { /* Hilo con el cual se trabajara */
+
+	int i = 0;
+	char c;
 	char command[256] = {0};
 	char response[256] = {0};
-	while(1){
-		i = 0;
-		while(1) {
-			read(0,&c,1);
-			if ( c == '\n')
-				break;
-			command[i]=c;
-			i++;
-		}
-		char *aux = (char*)malloc(sizeof(char)*i);
-		handle_command(command, response, sizeof(response));
-		strcpy(aux,command);
-		memset(command, 0, 256*(sizeof(char)));
-		printf("%s\n", response );
+
+	while(1) {
+		read(0,&c,1);
+		if ( c == '\n')
+			break;
+		command[i]=c;
+		i++;
 	}
+
+	handle_command(command, response, sizeof(response));
+	memset(command, 0, 256*(sizeof(char)));
+	printf("%s\n", response );
+
+	pthread_exit (1);
 }
 
 int handle_command(char *command, char *response, int len) {
@@ -50,10 +52,22 @@ int handle_command(char *command, char *response, int len) {
 }
 
 int main(int argc, char *argv[]) {
+
 	if (argc != 1) {
 		fprintf(stderr, "Usage: server\n");
 		exit(1);
 	}
-	RunClient();
+
+	pthread_t _ID [6]; /* ID de los hilos usados */
+	//short Activo = 0; /* hilos activos */
+
+	for (int i = 0; i < 6; i++)
+	{
+		pthread_create (&_ID[i], NULL, RunClient, NULL);
+		pthread_join (_ID[i], NULL);
+	}
+
+	//RunClient();
+
 	return(0);
 }

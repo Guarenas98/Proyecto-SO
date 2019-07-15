@@ -38,6 +38,22 @@ void Node_destructor(Node_t *node) {
 
 Node_t *search(char *, Node_t *, Node_t **);
 
+int update(char* name, char* new_value) { //1 si update fue exitoso, 0 si no existe el nodo
+	Node_t *objetivo;
+	objetivo = search(name, head, NULL);
+	if(objetivo == NULL) {
+		return 0;
+	} else {
+		char* s = strncpy(objetivo->value,  new_value, 255); //UPDATED
+		printf("se actualizo al valor %s\n", s);
+		return 1;
+	}
+
+
+}
+
+
+
 void query(char *name, char *result, int len) {
 	Node_t *target;
 	target = search(name, head, 0);
@@ -207,6 +223,20 @@ void interpret_command(char *command, char *response, int len) {
 
 	// which command is it?
 	switch (command[0]) {
+	case 'u':    //PARTE I PORYECTO
+		sscanf(&command[1], "%255s %255s", name, value); //obtengo name y el new value
+		if ((strlen(name) == 0) || (strlen(value) == 0)) {
+			strncpy(response, "ill-formed command", len-1);
+			return;
+		}
+		if(update(name, value)) {
+			strncpy(response ,"updated", len-1);
+		} else {
+			strncpy(response, "not in database", len-1);
+		}
+		return;
+
+	break;
 	case 'q':
 		 // Query
 		sscanf(&command[1], "%255s", name);

@@ -5,7 +5,6 @@
 #include <stdio.h>
 #include <assert.h>
 
-
 Node_t *Node_constructor(char *arg_name, char *arg_value, Node_t *arg_left, Node_t *arg_right) {
 	Node_t *new_node = (Node_t *)malloc(sizeof(Node_t));
 	if (new_node == 0)
@@ -23,8 +22,14 @@ Node_t *Node_constructor(char *arg_name, char *arg_value, Node_t *arg_left, Node
 	strcpy(new_node->value, arg_value);
 	new_node->lchild = arg_left;
 	new_node->rchild = arg_right;
+
+	new_node -> contador = 0;
+	sem_init (&(new_node -> WR), 0, 1);
+	sem_init (&(new_node -> Mutex), 0, 1);
 	return new_node;
 }
+
+
 
 
 void Node_destructor(Node_t *node) {
@@ -44,11 +49,47 @@ void query(char *name, char *result, int len) {
 	if (target == 0) {
 		strncpy(result, "not found", len-1);
 		return;
-	} else {
-		strncpy(result, target->value, len-1);
-		return;
 	}
+	sem_wait (&(target -> Mutex));
+	target -> contador ++;
+//	printf ("Hay %d, lectores\n Value: %s\n\n", target -> contador, target -> value);
+	if ( target -> contador == 1 )
+		sem_wait (&(target -> WR));
+	sem_post (&(target -> Mutex));
+
+	strncpy(result, target->value, len-1); // Seccion Critica
+
+	sem_wait (&(target -> Mutex));
+	target -> contador --;
+	if ( target -> contador == 0)
+		sem_post (&(target -> WR));
+
+	sem_post (&(target -> Mutex));
+
+	return;
 }
+
+int update(char* name, char* new_value) { //1 si update fue exitoso, 0 si no existe el nodo
+	Node_t *objetivo;
+	size_t Tamano = strlen (new_value);
+	if((objetivo = search(name, head, NULL)) == NULL) {
+		return 0;
+	} else {
+		sem_wait (&(objetivo -> WR));
+		free (objetivo -> value);
+		if ( ( objetivo -> value = malloc ( sizeof (char)* Tamano + 1) ) == NULL ){
+			sem_post(&(objetivo -> WR));			
+			return 0;
+		}
+		
+		strncpy(objetivo->value,  new_value, Tamano); //UPDATED
+		sem_post (&(objetivo -> WR));	
+		return 1;
+	}
+
+
+}
+
 
 int add(char *name, char *value) {
 	Node_t *parent;
@@ -65,12 +106,12 @@ int add(char *name, char *value) {
 	}
 
 	newnode = Node_constructor(name, value, 0, 0);
-
+	sem_wait (&(newnode -> WR));
 	if (strcmp(name, parent->name) < 0)
 		parent->lchild = newnode;
 	else
 		parent->rchild = newnode;
-
+	sem_post (&(newnode -> WR));
 	return(1);
 }
 
@@ -84,7 +125,7 @@ int xremove(char *name) {
 		return(0);
 	
 
-	if ( dnode == head ) {
+	if ( dnode == head) {
 		Node_destructor(head);
 		head = NULL;
 		return (1);
@@ -93,7 +134,7 @@ int xremove(char *name) {
 	// we found it.  Now check out the easy cases.  If the node has no
 	// right child, then we can merely replace its parent's pointer to
 	// it with the node's left child.
-
+	sem_wait(&(parent->WR));	
 	if (dnode->rchild == 0) {
 		if (strcmp(dnode->name, parent->name) < 0)
 			parent->lchild = dnode->lchild;
@@ -111,7 +152,9 @@ int xremove(char *name) {
 
 		// done with dnode
 		Node_destructor(dnode);
-	} else {
+		//sem_post(&(parent->WR));
+
+	} else { //EL DNODE TIENE 2 HIJOS
 		// So much for the easy cases ...
 		// We know that all nodes in a node's right subtree have lexicographically
 		// greater names than the node does, and all nodes in a node's left subtree
@@ -128,17 +171,35 @@ int xremove(char *name) {
 		next = dnode->rchild;
 		while (next->lchild != 0) {
 			// work our way down the lchild chain, finding the smallest node
-			// in the subtree. 
-			Node_t *nextl = next->lchild;
+			// in the subtree.
+ 	
+			sem_wait(&(next->Mutex));
+			next->contador++;
+			if(next->contador == 1) {
+					sem_wait(&(next->WR));
+			}			
+			sem_post(&(next->Mutex));
+
+			Node_t *nextl = next->lchild; //critic sechon
 			pnext = &next->lchild;
+			
+			sem_wait(&(next->Mutex));
+			next->contador--;
+			if(next->contador == 0) {
+					sem_post(&(next->WR));
+			}			
+			sem_post(&(next->Mutex));
+
 			next = nextl;
 		}
+		sem_wait(&(dnode->WR));
 		strcpy(dnode->name, next->name);
 		strcpy(dnode->value, next->value);
 		*pnext = next->rchild;
+		sem_post(&(dnode->WR));
 		Node_destructor(next);
 	}
-
+	sem_post(&(parent->WR));
 	return(1);
 }
 
@@ -164,6 +225,12 @@ Node_t* search(char *name, Node_t *parent, Node_t **parentpp) {
 
 	Node_t *next;
 	Node_t *result;
+	
+	sem_wait (&(parent -> Mutex));
+	parent -> contador ++;
+	if (parent -> contador == 1)
+		sem_wait (&(parent -> WR));
+	sem_post((&(parent -> Mutex)));
 
 	if (strcmp(name, parent->name) < 0) {
 		if ((next = parent->lchild) == 0) {
@@ -172,6 +239,11 @@ Node_t* search(char *name, Node_t *parent, Node_t **parentpp) {
 			if (strcmp(name, next->name) == 0) {
 				result = next;
 			} else {
+				sem_wait (&(parent -> Mutex));
+				parent -> contador --;
+				if ( parent -> contador == 0)
+					sem_post ( &(parent -> WR));
+				sem_post (&(parent -> Mutex));
 				result = search(name, next, parentpp);
 				return result;
 			}
@@ -183,6 +255,11 @@ Node_t* search(char *name, Node_t *parent, Node_t **parentpp) {
 			if (strcmp(name, next->name) == 0) {
 				result = next;
 			} else {
+				sem_wait (&(parent -> Mutex));
+				parent -> contador --;
+				if ( parent -> contador == 0)
+					sem_post ( &(parent -> WR));
+				sem_post (&(parent -> Mutex));
 				result = search(name, next, parentpp);
 				return result;
 			}
@@ -191,6 +268,12 @@ Node_t* search(char *name, Node_t *parent, Node_t **parentpp) {
 
 	if (parentpp != 0)
 		*parentpp = parent;
+
+	sem_wait (&(parent -> Mutex));
+	parent -> contador --;
+	if ( parent -> contador == 0)
+		sem_post ( &(parent -> WR));
+	sem_post (&(parent -> Mutex));
 
 	return(result);
 }
@@ -207,6 +290,20 @@ void interpret_command(char *command, char *response, int len) {
 
 	// which command is it?
 	switch (command[0]) {
+	case 'u':    //PARTE I PORYECTO
+		sscanf(&command[1], "%255s %255s", name, value); //obtengo name y el new value
+		if ((strlen(name) == 0) || (strlen(value) == 0)) {
+			strncpy(response, "ill-formed command", len-1);
+			return;
+		}
+		if(update(name, value)) {
+			strncpy(response ,"updated", len-1);
+		} else {
+			strncpy(response, "not in database", len-1);
+		}
+		return;
+
+	break;
 	case 'q':
 		 // Query
 		sscanf(&command[1], "%255s", name);
@@ -234,7 +331,7 @@ void interpret_command(char *command, char *response, int len) {
 			strncpy(response, "added", len-1);
 			return;
 		} else {
-			strncpy(response, "already in database", len-1);
+			strncpy(response, "already in database", len-1); //si existe ya en la bd
 			return;
 		}
 
@@ -273,8 +370,10 @@ void interpret_command(char *command, char *response, int len) {
 			fclose(finput);
 		}
 		strncpy(response, "file processed", len-1);
+		
 		return;
 
+		
 	default:
 		strncpy(response, "ill-formed command", len-1);
 		return;

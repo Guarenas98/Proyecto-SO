@@ -82,7 +82,7 @@ int update(char* name, char* new_value) { //1 si update fue exitoso, 0 si no exi
 			return 0;
 		}
 		
-		strncpy(objetivo->value,  new_value, Tamano); //UPDATED
+		strcpy(objetivo->value,  new_value); //UPDATED
 		sem_post (&(objetivo -> WR));	
 		return 1;
 	}
